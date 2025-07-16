@@ -10,3 +10,6 @@
 
 # gateway source simlink
 gateway_src
+
+
+**/__pycache__/**
