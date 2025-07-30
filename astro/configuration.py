@@ -121,38 +121,36 @@ class ConfigurationFactory:
         group_action_jobs = [] 
         validation_jobs = []
 
-        for bit, start, stop in [
-            (horizon_bit_id, SunLocation.SUNRISE, SunLocation.SUNSET),
-            (civil_bit_id, SunLocation.CIVIL_DAWN, SunLocation.CIVIL_DUSK),
-            (nautical_bit_id, SunLocation.NAUTICAL_DAWN, SunLocation.NAUTICAL_DUSK),
-            (astronomical_bit_id, SunLocation.ASTRONOMICAL_DAWN, SunLocation.ASTRONOMICAL_DUSK),
-            (bright_bit_id, SunLocation.SOLAR_NOON, None)
+        for bit, start, stop, account_offset in [
+            (horizon_bit_id, SunLocation.SUNRISE, SunLocation.SUNSET, False),
+            (civil_bit_id, SunLocation.CIVIL_DAWN, SunLocation.CIVIL_DUSK, False),
+            (nautical_bit_id, SunLocation.NAUTICAL_DAWN, SunLocation.NAUTICAL_DUSK, False),
+            (astronomical_bit_id, SunLocation.ASTRONOMICAL_DAWN, SunLocation.ASTRONOMICAL_DUSK, False),
+            (bright_bit_id, SunLocation.SUNRISE, SunLocation.SUNSET, True)
             ]:
             if bit >= 0:
                 validation_jobs.append(ValidationJob(
                     action=ValidationJobAction.SET,
-                    bit_id=horizon_bit_id,
+                    bit_id=bit,
                     sun_location=start,
-                    offset=bright_offset
+                    offset=bright_offset if account_offset else 0
                 ))
-                if stop is not None:
-                    validation_jobs.append(ValidationJob(
-                        action=ValidationJobAction.CLEAR,
-                        bit_id=horizon_bit_id,
-                        sun_location=stop,
-                        offset=bright_offset
-                    ))
+                validation_jobs.append(ValidationJob(
+                    action=ValidationJobAction.CLEAR,
+                    bit_id=bit,
+                    sun_location=stop,
+                    offset=-bright_offset if account_offset else 0
+                ))
                 group_action_jobs.append(GroupActionJob(
                     group_action_id=group_action_id,
                     sun_location=start,
-                    offset=bright_offset
+                    offset=bright_offset if account_offset else 0
                 ))
-                if stop is not None:
-                    group_action_jobs.append(GroupActionJob(
-                        group_action_id=group_action_id,
-                        sun_location=stop,
-                        offset=bright_offset
-                    ))
+                group_action_jobs.append(GroupActionJob(
+                    group_action_id=group_action_id,
+                    sun_location=stop,
+                    offset=-bright_offset if account_offset else 0
+                ))
 
         return Configuration(
             coordinates=Coordinates.from_string(coordinates),
@@ -228,7 +226,7 @@ class ConfigurationFactory:
             except ValueError:
                 raise ValueError(f"Invalid bit ID: {job.bit_id}, should be an integer.")
             if job.bit_id < 0:
-                raise ValueError(f"Invalid bit ID: {job.bit_id}")
+                raise ValueError(f"Invalid bit ID: {job.bit_id}, for validation job {job.sun_location.value}")
             if job.sun_location not in SunLocation:
                 raise ValueError(f"Invalid sun location: {job.sun_location}")
 
