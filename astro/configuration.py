@@ -296,7 +296,7 @@ class ConfigurationFactory:
                                                         'sunset', 'civil dawn', 'nautical dawn', 'astronomical dawn',
                                                         'astronomical dusk', 'nautical dusk', 'civil dusk', 'sunrise']},
                                            {'name': 'offset',
-                                            'type': 'str',
+                                            'type': 'int',
                                             'description': 'Offset in minutes before (negative value) or after (positive value) the given sun location'}]},
                               {'name': 'advanced_configuration',
                                'type': 'section',
@@ -316,7 +316,7 @@ class ConfigurationFactory:
                                                         'sunset', 'civil dawn', 'nautical dawn', 'astronomical dawn',
                                                         'astronomical dusk', 'nautical dusk', 'civil dusk', 'sunrise']},
                                            {'name': 'offset',
-                                            'type': 'str',
+                                            'type': 'int',
                                             'description': 'Offset in minutes before (negative value) or after (positive value) the given sun location'}]}
                               ]
         return config_description
