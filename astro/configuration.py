@@ -6,7 +6,7 @@ import logging
 
 import typing
 if typing.TYPE_CHECKING:
-    from typing import Optional, Dict, Any
+    from typing import Optional, Any
 
 logger = logging.getLogger(__name__)
 
@@ -105,8 +105,7 @@ class ConfigurationFactory:
         if version != ConfigurationVersion.V1_0:
             raise ValueError("Configuration version is not V1.0, cannot migrate.")
 
-        # location = config_data.get('location', '')
-        coordinates = config_data.get('coordinates', 'NACK')
+        coordinates = config_data.get('coordinates')
         horizon_bit_id = config_data.get('horizon_bit', -1)
         civil_bit_id = config_data.get('civil_bit', -1)
         nautical_bit_id = config_data.get('nautical_bit', -1)
@@ -115,8 +114,10 @@ class ConfigurationFactory:
         bright_offset = config_data.get('bright_offset', 0)
         group_action_id = config_data.get('group_action', -1)
 
-        if coordinates == 'NACK':
+        if not coordinates:
             raise ValueError("Coordinates must be provided in the configuration. (location only is no longer supported)")
+
+        coordinates_parsed = Coordinates.from_string(coordinates)
 
         group_action_jobs = [] 
         validation_jobs = []
@@ -153,7 +154,7 @@ class ConfigurationFactory:
                 ))
 
         return Configuration(
-            coordinates=Coordinates.from_string(coordinates),
+            coordinates=coordinates_parsed,
             group_action_jobs=group_action_jobs,
             validation_jobs=validation_jobs,
             version=ConfigurationVersion.V3_0
@@ -164,7 +165,10 @@ class ConfigurationFactory:
         if version != ConfigurationVersion.V2_0:
             raise ValueError("Configuration version is not V2.0, cannot migrate.")
 
-        coordinates = config_data.get('coordinates', '')
+        coordinates = config_data.get('coordinates')
+        if not coordinates:
+            raise ValueError("Coordinates must be provided in the configuration.")
+        coordinates_parsed = Coordinates.from_string(coordinates)
         group_action_jobs = [
             GroupActionJob(
                 group_action_id=job['group_action_id'],
@@ -180,14 +184,17 @@ class ConfigurationFactory:
                 offset=int(job['offset'] or 0)
             ) for job in config_data.get('advanced_configuration', [])
         ]
-        return Configuration(Coordinates.from_string(coordinates), group_action_jobs, validation_jobs, ConfigurationVersion.V3_0)
+        return Configuration(coordinates_parsed, group_action_jobs, validation_jobs, ConfigurationVersion.V3_0)
 
     def _migrate_configuration_v3(self, config_data: dict) -> Configuration:
         version = self._determine_configuration_version(config_data)
         if version != ConfigurationVersion.V3_0:
             raise ValueError("Configuration version is not V3.0, cannot migrate.")
 
-        coordinates = config_data.get('coordinates', '')
+        coordinates = config_data.get('coordinates')
+        if not coordinates:
+            raise ValueError("Coordinates must be provided in the configuration.")
+        coordinates_parsed = Coordinates.from_string(coordinates)
         group_action_jobs = [
             GroupActionJob(
                 group_action_id=job['group_action_id'],
@@ -203,7 +210,7 @@ class ConfigurationFactory:
                 offset=int(job['offset'] or 0)
             ) for job in config_data.get('advanced_configuration', [])
         ]
-        return Configuration(Coordinates.from_string(coordinates), group_action_jobs, validation_jobs, ConfigurationVersion.V3_0)
+        return Configuration(coordinates_parsed, group_action_jobs, validation_jobs, ConfigurationVersion.V3_0)
 
 
     def _verify_configuration(self, config: Configuration):
