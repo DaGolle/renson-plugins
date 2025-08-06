@@ -3,17 +3,19 @@ An astronomical plugin, for providing the system with astronomical data (e.g. wh
 """
 
 import six
-import re
 import time
 import requests
 import logging
 import json
 from threading import Thread, Event
 from datetime import datetime, timedelta
+from .configuration import ConfigurationFactory
 from plugins.base import om_expose, background_task, OMPluginBase, PluginConfigChecker
 
 
 logger = logging.getLogger(__name__)
+
+config_factory = ConfigurationFactory()
 
 
 class Astro(OMPluginBase):
@@ -22,51 +24,12 @@ class Astro(OMPluginBase):
     """
 
     name = 'Astro'
-    version = '1.0.6'
+    version = '1.1.2'
     interfaces = [('config', '1.0')]
 
-    config_description = [{'name': 'coordinates',
-                           'type': 'str',
-                           'description': 'Coordinates in the form of `lat;long`.'},
-                          {'name': 'basic_configuration',
-                           'type': 'section',
-                           'description': 'Executing automations at a certain point',
-                           'repeat': True, 'min': 0,
-                           'content': [{'name': 'group_action_id',
-                                        'type': 'int',
-                                        'description': 'The Id of the Group Action / Automation that needs to be executed'},
-                                       {'name': 'sun_location',
-                                        'type': 'enum',
-                                        'description': 'The location of the sun at this point',
-                                        'choices': ['solar noon',
-                                                    'sunset', 'civil dawn', 'nautical dawn', 'astronomical dawn',
-                                                    'astronomical dusk', 'nautical dusk', 'civil dusk', 'sunrise']},
-                                       {'name': 'offset',
-                                        'type': 'str',
-                                        'description': 'Offset in minutes before (negative value) or after (positive value) the given sun location'}]},
-                          {'name': 'advanced_configuration',
-                           'type': 'section',
-                           'description': 'Setting/clearing validation bit at a certain point',
-                           'repeat': True, 'min': 0,
-                           'content': [{'name': 'action',
-                                        'type': 'enum',
-                                        'description': 'Whether to set or clear the validation bit',
-                                        'choices': ['set', 'clear']},
-                                       {'name': 'bit_id',
-                                        'type': 'int',
-                                        'description': 'The Id of the Validaten Bit that needs to set/cleared'},
-                                       {'name': 'sun_location',
-                                        'type': 'enum',
-                                        'description': 'The location of the sun at this point',
-                                        'choices': ['solar noon',
-                                                    'sunset', 'civil dawn', 'nautical dawn', 'astronomical dawn',
-                                                    'astronomical dusk', 'nautical dusk', 'civil dusk', 'sunrise']},
-                                       {'name': 'offset',
-                                        'type': 'str',
-                                        'description': 'Offset in minutes before (negative value) or after (positive value) the given sun location'}]}
-                          ]
+    config_description = config_factory.get_config_description()
 
-    default_config = {}
+    default_config = config_factory.get_default_configuration()
 
     def __init__(self, webinterface, connector):
         super(Astro, self).__init__(webinterface=webinterface, connector=connector)
@@ -74,6 +37,8 @@ class Astro(OMPluginBase):
 
         self._config = self.read_config(Astro.default_config)
         self._config_checker = PluginConfigChecker(Astro.config_description)
+
+        self._parsed_config = None
 
         self._latitude = None
         self._longitude = None
@@ -95,6 +60,10 @@ class Astro(OMPluginBase):
         logger.info("Started Astro plugin")
 
     def _read_config(self):
+        logger.info('Reading configuration...')
+        logger.info('Configuration: {0}'.format(self._config))
+        self._parsed_config = config_factory.parse_configuration(self._config)
+
         try:
             import pytz
             from pytz import reference
@@ -105,66 +74,50 @@ class Astro(OMPluginBase):
 
         if enabled:
             # Parse coordinates
-            coordinates = self._config.get('coordinates', '').strip()
-            match = re.match(r'^(-?\d+[\.,]\d+).*?[;,/].*?(-?\d+[\.,]\d+)$', coordinates)
-            if match:
-                latitude = match.group(1)
-                if ',' in latitude:
-                    latitude = latitude.replace(',', '.')
-                longitude = match.group(2)
-                if ',' in longitude:
-                    longitude = longitude.replace(',', '.')
-                try:
-                    self._latitude = float(latitude)
-                    self._longitude = float(longitude)
-                    self._print_coordinate_time()
-                except ValueError as ex:
-                    logger.error('Could not parse coordinates: {0}'.format(ex))
-                    enabled = False
-            else:
-                logger.error('Could not parse coordinates')
-                enabled = False
+            coordinates = self._parsed_config.coordinates
+            self._latitude = coordinates.latitude
+            self._longitude = coordinates.longitude
+            self._print_coordinate_time()
+
 
         if enabled:
-            # Parse group actions
             group_actions = {}
-            for entry in self._config.get('basic_configuration', []):
-                sun_location = entry.get('sun_location')
+            for entry in self._parsed_config.group_action_jobs:
+                sun_location = entry.sun_location.value
                 if not sun_location:
                     continue
                 try:
-                    group_action_id = int(entry.get('group_action_id'))
+                    group_action_id = int(entry.group_action_id)
                 except ValueError:
                     continue
                 try:
-                    offset = int(entry.get('offset', 0))
+                    offset = int(entry.offset or 0)
                 except ValueError:
                     offset = 0
                 actions = group_actions.setdefault(sun_location, [])
                 actions.append({'group_action_id': group_action_id,
                                 'offset': offset})
-            self._group_actions = group_actions
+                self._group_actions = group_actions
 
-            # Parse bits
             bits = {}
-            for entry in self._config.get('advanced_configuration', []):
-                sun_location = entry.get('sun_location')
+            for entry in self._parsed_config.validation_jobs:
+                sun_location = entry.sun_location.value
                 if not sun_location:
                     continue
-                action = entry.get('action', 'clear')
+                action = entry.action.value or 'clear'
                 try:
-                    bit_id = int(entry.get('bit_id'))
+                    bit_id = int(entry.bit_id)
                 except ValueError:
                     continue
                 try:
-                    offset = int(entry.get('offset', 0))
+                    offset = int(entry.offset or 0)
                 except ValueError:
                     offset = 0
                 actions = bits.setdefault(sun_location, [])
                 actions.append({'bit_id': bit_id,
                                 'action': action,
                                 'offset': offset})
-            self._bits = bits
+                self._bits = bits
 
         self._print_actions()
         self._enabled = enabled and (self._group_actions or self._bits)
@@ -204,18 +157,18 @@ class Astro(OMPluginBase):
         for sun_location in sun_locations:
             group_actions = self._group_actions.get(sun_location, [])
             bits = self._bits.get(sun_location, [])
-            for entry in group_actions:
-                logger.info('* At {0}{1}: Execute Automation {2}'.format(
-                    sun_location,
-                    Astro._format_offset(entry['offset']),
-                    entry['group_action_id']
-                ))
             for entry in bits:
                 logger.info('* At {0}{1}: {2} Validation Bit {3}'.format(
                     sun_location,
                     Astro._format_offset(entry['offset']),
                     entry['action'].capitalize(),
                     entry['bit_id']
+                ))
+            for entry in group_actions:
+                logger.info('* At {0}{1}: Execute Automation {2}'.format(
+                    sun_location,
+                    Astro._format_offset(entry['offset']),
+                    entry['group_action_id']
                 ))
 
     def _print_execution_plan(self):
@@ -349,23 +302,41 @@ class Astro(OMPluginBase):
                 if data['status'] != 'OK':
                     raise RuntimeError(data['status'])
                 execution_plan = {}
-                field_map = {'solar noon': 'solar_noon',
-                            'sunset': 'sunset',
-                            'civil dusk': 'civil_twilight_end',
-                            'nautical dusk': 'nautical_twilight_end',
-                            'astronomical dusk': 'astronomical_twilight_end',
-                            'astronomical dawn': 'astronomical_twilight_begin',
-                            'nautical dawn': 'nautical_twilight_begin',
-                            'civil dawn': 'civil_twilight_begin',
-                            'sunrise': 'sunrise'}
+                field_map = {
+                        'sunrise': 'sunrise',
+                        'civil dawn': 'civil_twilight_begin',
+                        'nautical dawn': 'nautical_twilight_begin',
+                        'astronomical dawn': 'astronomical_twilight_begin',
+                        'astronomical dusk': 'astronomical_twilight_end',
+                        'nautical dusk': 'nautical_twilight_end',
+                        'civil dusk': 'civil_twilight_end',
+                        'sunset': 'sunset',
+                        'solar noon': 'solar_noon',
+                    }
                 for sun_location in set(self._group_actions.keys()) | set(self._bits.keys()):
                     group_actions = self._group_actions.get(sun_location, [])
                     bits = self._bits.get(sun_location, [])
+
                     if not group_actions and not bits:
                         continue
                     date = self._convert(data['results'].get(field_map.get(sun_location, 'x')))
                     if date is None:
                         continue
+
+                    for entry in bits:
+                        entry_date = date + timedelta(minutes=entry['offset'])
+                        if entry_date < now:
+                            continue
+                        date_plan = execution_plan.setdefault(entry_date, [])
+                        task = {'task': 'bit',
+                                        'source': '{0}{1}'.format(
+                                            sun_location,
+                                            Astro._format_offset(entry['offset'])
+                                        ),
+                                        'data': {'action': entry['action'],
+                                                'bit_id': entry['bit_id']}}
+                        date_plan.append(task)
+
                     for entry in group_actions:
                         entry_date = date + timedelta(minutes=entry['offset'])
                         if entry_date < now:
@@ -377,22 +348,10 @@ class Astro(OMPluginBase):
                                             Astro._format_offset(entry['offset'])
                                         ),
                                         'data': {'group_action_id': entry['group_action_id']}})
-                    for entry in bits:
-                        entry_date = date + timedelta(minutes=entry['offset'])
-                        if entry_date < now:
-                            continue
-                        date_plan = execution_plan.setdefault(entry_date, [])
-                        date_plan.append({'task': 'bit',
-                                        'source': '{0}{1}'.format(
-                                            sun_location,
-                                            Astro._format_offset(entry['offset'])
-                                        ),
-                                        'data': {'action': entry['action'],
-                                                'bit_id': entry['bit_id']}})
                 self._execution_plan = execution_plan
                 break
             except Exception as ex:
-                logger.exception('Could not fetch or load data')
+                logger.exception('Could not fetch or load data: {0}'.format(ex))
                 self._execution_plan = {}
                 logger.info("sleeping 5 seconds and retrying...")
                 time.sleep(5)
@@ -403,7 +362,7 @@ class Astro(OMPluginBase):
 
     @om_expose
     def get_config(self):
-        return json.dumps(self._config)
+        return json.dumps(config_factory.get_json_configuration(self._parsed_config))
 
     @om_expose
     def set_config(self, config):
