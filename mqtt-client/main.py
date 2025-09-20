@@ -34,7 +34,7 @@ class MQTTClient(OMPluginBase):
     """
 
     name = 'MQTTClient'
-    version = '3.0.4'
+    version = '3.0.5'
     interfaces = [('config', '1.0')]
 
     energy_module_config = {
@@ -587,19 +587,19 @@ class MQTTClient(OMPluginBase):
     def _process_sensor_status(self, sensor_config, json_data):
         mqtt_messages = []
         data_list = list(filter(None, json_data.get('status', [])))
-        for sensor_id, sensor_value in enumerate(data_list):
-            sensor = self._sensors.get(sensor_id)
+        for sensor_data in data_list:
+            sensor = self._sensors.get(sensor_data['id'])
             if sensor:
-                sensor_data = {'id': sensor_id,
-                               'source': sensor.get('source'),
-                               'external_id': sensor.get('external_id'),
-                               'physical_quantity': sensor.get('physical_quantity'),
-                               'unit': sensor.get('unit'),
-                               'name': sensor.get('name'),
-                               'value': float(sensor_value),
-                               'timestamp': self._timestamp2isoformat()}
-                mqtt_messages.append({'topic': sensor_config.get('topic').format(id=sensor_id),
-                                      'message': sensor_data})
+                sensor_data['source']            = sensor.get('source')
+                sensor_data['external_id']       = sensor.get('external_id')
+                sensor_data['physical_quantity'] = sensor.get('physical_quantity')
+                sensor_data['unit']              = sensor.get('unit')
+                sensor_data['name']              = sensor.get('name')
+                sensor_data['timestamp']         = self._timestamp2isoformat()
+                mqtt_messages.append({
+                    'topic': sensor_config.get('topic').format(id=sensor_data['id']),
+                    'message': sensor_data
+                })
         return mqtt_messages
 
     def _process_realtime_power(self, sensor_config, json_data):
@@ -619,8 +619,10 @@ class MQTTClient(OMPluginBase):
                                        'current': sensor_values[2],
                                        'power': sensor_values[3],
                                        'timestamp': self._timestamp2isoformat()}
-                        mqtt_messages.append({'topic': sensor_config.get('topic').format(module_id=module_id, sensor_id=input_id),
-                                              'message': sensor_data })
+                        mqtt_messages.append({
+                            'topic': sensor_config.get('topic').format(module_id=module_id, sensor_id=input_id),
+                            'message': sensor_data
+                        })
         return mqtt_messages
 
     def _process_total_energy(self, sensor_config, json_data):
@@ -638,8 +640,10 @@ class MQTTClient(OMPluginBase):
                                        'day': sensor_values[0],
                                        'night': sensor_values[1],
                                        'timestamp': self._timestamp2isoformat()}
-                    mqtt_messages.append({'topic': sensor_config.get('topic').format(module_id=module_id, sensor_id=input_id),
-                                          'message': sensor_data})
+                    mqtt_messages.append({
+                        'topic': sensor_config.get('topic').format(module_id=module_id, sensor_id=input_id),
+                        'message': sensor_data
+                    })
         return mqtt_messages
 
     def _create_background_task(self, sensor_type, data_retriever, data_processor):
